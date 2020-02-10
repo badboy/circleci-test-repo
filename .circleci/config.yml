@@ -50,7 +50,7 @@ commands:
         default: ""
     steps:
       - run: |
-          echo "Ignores: <<parameters.rust-version>>"
+          echo "Ignores: <<parameters.additional-ignore>>"
 
   test-rust:
     parameters:
