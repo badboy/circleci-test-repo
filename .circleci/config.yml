@@ -392,13 +392,13 @@ workflows:
       - Android tests
       # iOS jobs run only on master by default, see below for manual-approved jobs
       - iOS build and test:
-          filter:
+          filters:
             branches:
               only: master
       - iOS integration test:
           requires:
             - iOS build and test
-          filter:
+          filters:
             branches:
               only: master
       - Python 3_5 tests
@@ -417,7 +417,7 @@ workflows:
             - Generate Rust documentation
             - Generate Kotlin documentation
             - Generate Python documentation
-          filter:
+          filters:
             branches:
               ignore: master
       - docs-linkcheck-master:
@@ -426,7 +426,7 @@ workflows:
             - Generate Kotlin documentation
             - iOS build and test
             - Generate Python documentation
-          filter:
+          filters:
             branches:
               only: master
       - docs-spellcheck
@@ -442,16 +442,16 @@ workflows:
     jobs:
       - hold:
           type: approval
-          filter:
+          filters:
             branches:
               ignore: master
       - iOS build and test:
-          filter:
+          filters:
             branches:
               ignore: master
       - iOS integration test:
           requires:
             - iOS build and test
-          filter:
+          filters:
             branches:
               ignore: master
