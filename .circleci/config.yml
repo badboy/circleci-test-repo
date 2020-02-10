@@ -446,6 +446,8 @@ workflows:
             branches:
               ignore: master
       - iOS build and test:
+          requires:
+            - hold
           filters:
             branches:
               ignore: master
