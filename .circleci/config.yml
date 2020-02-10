@@ -1,0 +1,457 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+---
+
+version: 2.1
+
+###########################################################################
+# DEFINITIONS
+
+definitions:
+  - release_filters: &release-filters
+      branches:
+        ignore: /.*/
+      tags:
+        only: /^v.*/
+
+##########################################################################
+# COMMANDS
+
+commands:
+  skip-if-doc-only:
+    steps:
+      - run:
+          name: Check doc only skip condition
+          command: |
+            if git log -1 "$CIRCLE_SHA1" | grep -q '\[doc only\]'; then
+                echo "Skipping this step. Last commit was tagged to not require tests."
+                circleci-agent step halt
+            fi
+
+  setup-rust-toolchain:
+    parameters:
+      rust-version:
+        type: string
+        default: "stable"
+    steps:
+      - run:
+          name: Setup Rust toolchain
+          command: |
+            rustup install <<parameters.rust-version>>
+            rustup default <<parameters.rust-version>>
+            rustc --version
+
+  link-check:
+    parameters:
+      additional-ignore:
+        type: string
+        default: ""
+    steps:
+      - run: |
+          echo "Ignores: <<parameters.rust-version>>"
+
+  test-rust:
+    parameters:
+      rust-version:
+        type: string
+        default: "stable"
+    steps:
+      - checkout
+      - skip-if-doc-only
+      - setup-rust-toolchain:
+          rust-version: <<parameters.rust-version>>
+      - run:
+          name: Test
+          command: cargo test --all --verbose
+
+  install-rustup:
+    steps:
+      - run:
+          name: Installing rustup
+          command: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - run:
+          name: Setup custom environment variables
+          command: |
+              echo "export PATH=$HOME/.cargo/bin:$PATH" >> $BASH_ENV
+
+  install-android-targets:
+    steps:
+      - run:
+          command: |
+            rustup target add aarch64-linux-android
+            rustup target add armv7-linux-androideabi
+            rustup target add i686-linux-android
+            rustup target add x86_64-linux-android
+
+  android-setup:
+    steps:
+      - checkout
+      - install-rustup
+      - setup-rust-toolchain:
+          rust-version: stable
+      - install-android-targets
+      - run:
+          name: Install missing Android SDK
+          command: |
+              sdkmanager 'build-tools;21.0.0'
+      # The Debian container in use is shipping libtinfo.so.6, but the Clang deployed in the NDK requires v5.
+      # We hack around that by symlinking the new to the old version, they seem to be mostly compatible.
+      - run:
+          name: "HACK: Fix up missing libtinfo.so.5"
+          command: |
+              sudo ln -s /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5
+
+  test-python:
+    steps:
+      - install-rustup
+      - setup-rust-toolchain
+      - run:
+          name: Python tests
+          command: make test-python
+
+  install-mingw:
+    steps:
+      - run:
+          name: Install mingw
+          command: |
+            sudo apt update
+            sudo apt install -y gcc-mingw-w64
+      - run:
+          name: Add mingw target
+          command: |
+            rustup target add x86_64-pc-windows-gnu
+            # Set the linker to use for Rust/mingw
+            echo '[target.x86_64-pc-windows-gnu]' >> ~/.cargo/config
+            echo 'linker = "/usr/bin/x86_64-w64-mingw32-gcc"' >> ~/.cargo/config
+      - run:
+          name: Fix broken mingw toolchain
+          command: |
+            # Fix broken libraries
+            # https://github.com/rust-lang/rust/issues/47048
+            # https://github.com/rust-lang/rust/issues/49078
+            # https://wiki.archlinux.org/index.php/Rust#Windows
+            for lib in crt2.o dllcrt2.o libmsvcrt.a; do cp -v /usr/x86_64-w64-mingw32/lib/$lib ~/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-pc-windows-gnu/lib/; done
+
+  install-ghr-darwin:
+    steps:
+      - run:
+          name: Get ghr release tool
+          command: |
+            GHR=ghr_v0.13.0_darwin_amd64
+            GHR_SHA256=319988a001462f80b37cf40fbc41b9de60b0a1cffa2a338b47b9fe5eef25f60e
+            curl -sfSL --retry 5 --retry-delay 10 -O "https://github.com/tcnksm/ghr/releases/download/v0.13.0/${GHR}.zip"
+            echo "${GHR_SHA256} *${GHR}.zip" | shasum -a 256 -c -
+            unzip "${GHR}.zip"
+            cp ./${GHR}/ghr ghr
+
+  install-ghr-linux:
+    steps:
+      - run:
+          name: Get ghr release tool
+          command: |
+            GHR=ghr_v0.13.0_linux_amd64
+            GHR_SHA256=c428627270ae26e206cb526cb8c7bdfba475dd278f6691ddaf863355adadfa13
+            curl -sfSL --retry 5 --retry-delay 10 -O "https://github.com/tcnksm/ghr/releases/download/v0.13.0/${GHR}.tar.gz"
+            echo "${GHR_SHA256} *${GHR}.tar.gz" | shasum -a 256 -c -
+            tar -xf "${GHR}.tar.gz"
+            cp ./${GHR}/ghr ghr
+
+jobs:
+  ###########################################################################
+  # Project-level
+
+  License check:
+    docker:
+      - image: circleci/rust:latest
+    steps:
+      - run: echo done
+
+  Lint YAML with yamllint:
+    docker:
+      - image: circleci/python:3.7.5
+    steps:
+      - run: echo done
+
+  ###########################################################################
+  # Rust / C / FFI
+
+  Check Rust formatting:
+    docker:
+      - image: circleci/rust:latest
+    steps:
+      - run: echo done
+
+  Lint Rust with clippy:
+    docker:
+      - image: circleci/rust:latest
+    steps:
+      - run: echo done
+
+  Rust tests - stable:
+    docker:
+      - image: circleci/rust:latest
+    resource_class: "medium+"
+    steps:
+      - run: echo done
+
+  Rust tests - beta:
+    docker:
+      - image: circleci/rust:latest
+    steps:
+      - run: echo done
+
+  Rust tests - minimum version:
+    docker:
+      - image: circleci/rust:latest
+    resource_class: "medium+"
+    steps:
+      - run: echo done
+
+  Rust FFI header check:
+    docker:
+      - image: circleci/rust:latest
+    steps:
+      - run: echo done
+
+  C tests:
+    docker:
+      - image: circleci/rust:latest
+    steps:
+      - run: echo done
+
+  Generate Rust documentation:
+    docker:
+      - image: circleci/rust:latest
+    steps:
+      - run: echo done
+
+  ###########################################################################
+  # Android / Kotlin / Java
+
+  Lint Android with ktlint and detekt:
+    docker:
+      - image: circleci/android:api-28-ndk
+    steps:
+      - run: echo done
+
+  Android tests:
+    docker:
+      - image: circleci/android:api-28-ndk
+    steps:
+      - run: echo done
+
+  android-packaging:
+    docker:
+      - image: circleci/android:api-28-ndk
+    steps:
+      - run: echo done
+
+  android-release:
+    docker:
+      - image: circleci/rust:latest
+    steps:
+      - run: echo done
+
+  Generate Kotlin documentation:
+    docker:
+      - image: circleci/android:api-28-ndk
+    steps:
+      - run: echo done
+
+  ###########################################################################
+  # Swift / iOS / macOS
+
+  Check Swift formatting:
+    docker:
+      - image: circleci/rust:latest
+    steps:
+      - run: echo done
+
+  iOS build and test:
+    docker:
+      - image: circleci/rust:latest
+    steps:
+      - run: echo done
+
+  iOS integration test:
+    docker:
+      - image: circleci/rust:latest
+    steps:
+      - run: echo done
+
+  Carthage release:
+    docker:
+      - image: circleci/rust:latest
+    steps:
+      - run: echo done
+
+  macOS release build:
+    docker:
+      - image: circleci/rust:latest
+    steps:
+      - run: echo done
+
+  ###########################################################################
+  # Python
+
+  Lint Python:
+    docker:
+      - image: circleci/python:3.7.5
+    steps:
+      - run: echo done
+
+  Python 3_5 tests:
+    docker:
+      - image: circleci/python:3.5.9
+    steps:
+      - run: echo done
+
+  Python 3_6 tests:
+    docker:
+      - image: circleci/python:3.6.9
+    steps:
+      - run: echo done
+
+  Python 3_7 tests:
+    docker:
+      - image: circleci/python:3.7.6
+    steps:
+      - run: echo done
+
+  Generate Python documentation:
+    docker:
+      - image: circleci/python:3.7.6
+    steps:
+      - run: echo done
+
+  pypi-linux-release:
+    docker:
+      # The official docker image for building manylinux1 wheels
+      - image: quay.io/pypa/manylinux1_x86_64
+    steps:
+      - run: echo done
+
+  ###########################################################################
+  # Docs
+
+  docs-linkcheck-dev:
+    docker:
+      - image: circleci/python
+    steps:
+      - link-check:
+          additional-ignore: "--ignore-url swift"
+
+  docs-linkcheck-master:
+    docker:
+      - image: circleci/python
+    steps:
+      - link-check
+
+  docs-spellcheck:
+    docker:
+      # Use Debian Sid so we get aspell 0.60.8 or later (which contains markdown support)
+      - image: circleci/buildpack-deps:sid
+    steps:
+      - run: echo done
+
+  # via https://circleci.com/blog/deploying-documentation-to-github-pages-with-continuous-integration/
+  docs-deploy:
+    docker:
+      - image: node:8.10.0
+    steps:
+      - run: echo done
+
+###########################################################################
+# Workflows
+
+workflows:
+  version: 2
+  check-formating:
+    jobs:
+      - Check Rust formatting
+      - Check Swift formatting
+
+  lint:
+    jobs:
+      - Lint YAML with yamllint
+      - License check
+      - Lint Rust with clippy
+      - Rust FFI header check
+      - Lint Android with ktlint and detekt
+      - Lint Python
+
+  ci:
+    jobs:
+      - Rust tests - stable
+      # FIXME: Disabled due to failing to often, bug 1574424
+      # - Rust tests - beta
+      - Rust tests - minimum version
+      - C tests
+      - Android tests
+      # iOS jobs run only on master by default, see below for manual-approved jobs
+      - iOS build and test:
+          filter:
+            branches:
+              only: master
+      - iOS integration test:
+          requires:
+            - iOS build and test
+          filter:
+            branches:
+              only: master
+      - Python 3_5 tests
+      - Python 3_6 tests
+      - Python 3_7 tests
+
+      - Generate Rust documentation:
+          requires:
+            - docs-spellcheck
+      - Generate Kotlin documentation
+      - Generate Python documentation:
+          requires:
+            - Python 3_7 tests
+      - docs-linkcheck-dev:
+          requires:
+            - Generate Rust documentation
+            - Generate Kotlin documentation
+            - Generate Python documentation
+          filter:
+            branches:
+              ignore: master
+      - docs-linkcheck-master:
+          requires:
+            - Generate Rust documentation
+            - Generate Kotlin documentation
+            - iOS build and test
+            - Generate Python documentation
+          filter:
+            branches:
+              only: master
+      - docs-spellcheck
+      - docs-deploy:
+          requires:
+            - docs-linkcheck
+          filters:
+            branches:
+              only: master
+
+  # iOS jobs require manual approval on PRs
+  iOS:
+    jobs:
+      - hold:
+          type: approval
+          filter:
+            branches:
+              ignore: master
+      - iOS build and test:
+          filter:
+            branches:
+              ignore: master
+      - iOS integration test:
+          requires:
+            - iOS build and test
+          filter:
+            branches:
+              ignore: master
