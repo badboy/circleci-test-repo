@@ -192,7 +192,6 @@ jobs:
   Rust tests - stable:
     docker:
       - image: circleci/rust:latest
-    resource_class: "medium+"
     steps:
       - run: echo done
 
@@ -205,7 +204,6 @@ jobs:
   Rust tests - minimum version:
     docker:
       - image: circleci/rust:latest
-    resource_class: "medium+"
     steps:
       - run: echo done
 
